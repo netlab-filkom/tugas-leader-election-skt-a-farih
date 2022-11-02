@@ -13,10 +13,11 @@ import (
 var MIN_TIMER int = 30
 var MAX_TIMER int = 50
 var HEARTBEAT_DURATION int = 10
-var NODES int = 3
+var NODES int = 5
+var activeNodes int
 var timeDuration int = 0
 var term int = 0
-var vote_acc int = 0
+var vote_acc int = 1
 var isLeader bool = false
 
 var timer *time.Timer
@@ -36,6 +37,8 @@ var members = []Node{
 	{1, "127.0.0.1:9000", "9000"},
 	{2, "127.0.0.1:9001", "9001"},
 	{3, "127.0.0.1:9002", "9002"},
+	{4, "127.0.0.1:9003", "9003"},
+	{5, "127.0.0.1:9004", "9004"},
 }
 
 func (t *Raft) RequestVote(termCandidate int, result *int) error {
@@ -76,16 +79,16 @@ func restartCountdownTimer() {
 	printTime()
 	fmt.Println("Start timer with duration:", timeDuration)
 	timer = time.AfterFunc(time.Duration(timeDuration)*time.Second, func() {
-		
+		activeNodes = NODES
+		term += 1
 		go func() {
 			for _, server := range members {
+				fmt.Println("Meminta requestVote ke", server.port)
 				client, err := rpc.DialHTTP("tcp", server.address)
 				if err != nil {
-					fmt.Println("Node", server.port, "mati.")
-					NODES -= 1
+					activeNodes -= 1
 					continue
 				}
-				term += 1
 				var result int
 				err = client.Call("Raft.RequestVote", term, &result)
 				handleErr(err)
@@ -98,13 +101,13 @@ func restartCountdownTimer() {
 			fmt.Println("Selesai request vote ke semua node.")
 			fmt.Println("Acc vote yang didapat:", vote_acc)
 
-			if vote_acc >= NODES / 2 {
+			if vote_acc >= activeNodes / 2 {
 				isLeader = true
 
 				fmt.Println("Sekarang", self.port, "adalah leader.")
 			}
 
-			vote_acc = 0
+			vote_acc = 1
 			go sendHeartBeat()
 		}()
 	})
@@ -119,7 +122,6 @@ func sendHeartBeat() {
 					client, err := rpc.DialHTTP("tcp", server.address)
 					if err != nil {
 						fmt.Println("Node", server.port, "mati.")
-						NODES -= 1
 						continue
 					}
 					var result int
