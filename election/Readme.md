@@ -1,8 +1,8 @@
 # Tugas Leader Election Raft
 
 ## Kelompok
-1. NIM Nama
-2. NIM Nama
+1. 205150301111026 Farih Akmal Haqiqi
+2. 205150300111047 Muhammad Daffa Pradipta Akbar
 
 ## Deskripsi Tugas
 Implementasikan mekanisme pemilihan leader di protokol Raft dengan alur sebagai berikut :
