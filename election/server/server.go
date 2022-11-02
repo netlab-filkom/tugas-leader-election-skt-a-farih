@@ -34,7 +34,7 @@ type Raft struct {
 var members = []Node{
 	{1, "127.0.0.1:9000", "9000"},
 	{2, "127.0.0.1:9001", "9001"},
-	{3, "127.0.0.1:9003", "9003"},
+	{3, "127.0.0.1:9002", "9002"},
 }
 
 func (t *Raft) RequestVote(termCandidate int, result *int) error {
@@ -72,7 +72,7 @@ func resetTimer() {
 
 func restartCountdownTimer() {
 	printTime()
-	fmt.Println("Start timer with duration : ", timeDuration)
+	fmt.Println("Start timer with duration:", timeDuration)
 	timer = time.AfterFunc(time.Duration(timeDuration)*time.Second, func() {
 		
 		go func() {
@@ -88,6 +88,7 @@ func restartCountdownTimer() {
 				}
 			}
 
+			printTime()
 			fmt.Println("Selesai request vote ke semua node.")
 			fmt.Println("Vote acc yang didapat:", vote_acc)
 
