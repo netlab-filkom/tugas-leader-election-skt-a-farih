@@ -10,177 +10,144 @@ import (
 	"time"
 )
 
-// Properti Timer
-var heartbeat_counter int
+var MIN_TIMER int = 30
+var MAX_TIMER int = 50
+var NODES int = 3
+var timeDuration int = 0
+var term int = 0
+var vote_acc int = 0
+var isLeader bool = false
+
 var timer *time.Timer
-var MIN_TIMER int = 100
-var MAX_TIMER int = 500
-
 var self Node
-var isLeader = false
-
-type Message struct {
-	index int
-	term  int
-}
-
-var logs = []Message{}
-
-type SensorRPC struct {
-}
 
 type Node struct {
-	id      int
-	port    string
-	address string
-	leader  bool
+	id      int16
+	address string // "IP:Port"
+	port 		string
 }
 
-var followers = []Node{
-	{1, "9000", "127.0.0.1:9000", false},
-	{2, "9001", "127.0.0.1:9001", false},
-	{3, "9002", "127.0.0.1:9002", false},
-	{4, "9003", "127.0.0.1:9003", false},
-	{5, "9021", "127.0.0.1:9021", false},
+type Raft struct {
+
 }
 
-func resetCountdownTimer() {
-	timer.Stop()
-	heartbeat_counter = rand.Intn((MAX_TIMER - MIN_TIMER)) + MIN_TIMER
+var members = []Node{
+	{1, "127.0.0.1:9000", "9000"},
+	{2, "127.0.0.1:9001", "9001"},
+	{3, "127.0.0.1:9003", "9003"},
+}
+
+func (t *Raft) RequestVote(termCandidate int, result *int) error {
+	if termCandidate > term {
+		*result = 1
+	} else {
+		*result = 0
+	}
+
+	return nil
+}
+
+func (t *Raft) AppendEntries(termLeader int, result *int) error {
+	term = termLeader
+	printTime()
+	fmt.Println("Menerima heartbeat dari leader.")
+	resetTimer()
+	restartCountdownTimer()
+
+	return nil
+}
+
+func printTime() {
+	dt := time.Now()
+	fmt.Println(dt.Format("\n--> 15:04:05"))
+}
+
+func resetTimer() {
+	if timeDuration > 0 {
+		timer.Stop()
+		fmt.Println("Timer " + self.port + " distop.")
+	}
+	timeDuration = rand.Intn(MAX_TIMER - MIN_TIMER) + MIN_TIMER
 }
 
 func restartCountdownTimer() {
-	fmt.Println("Start timer with duration : ", heartbeat_counter)
-	timer = time.AfterFunc((heartbeat_counter)*time.Second, func() {
-		// Switch state to Candidate and init election
-		fmt.Println("Timer off")
+	printTime()
+	fmt.Println("Start timer with duration : ", timeDuration)
+	timer = time.AfterFunc(time.Duration(timeDuration)*time.Second, func() {
+		
+		go func() {
+			for _, server := range members {
+				client, err := rpc.DialHTTP("tcp", server.address)
+				handleErr(err)
+				term += 1
+				var result int
+				err = client.Call("Raft.RequestVote", term, &result)
+				handleErr(err)
+				if result == 1 {
+					vote_acc += 1
+				}
+			}
+
+			fmt.Println("Selesai request vote ke semua node.")
+			fmt.Println("Vote acc yang didapat:", vote_acc)
+
+			if vote_acc > NODES / 2 {
+				isLeader = true
+
+				fmt.Println("Sekarang", self.port, "adalah leader.")
+			}
+
+			go sendHeartBeat()
+		}()
 	})
 }
 
-func (t *SensorRPC) AddSensorData(args *Message, reply *int) {
-	// Reset countdown timer
-	resetCountdownTimer()
-	if args != nil {
-		logs = append(logs, *args)
-	}
-	*reply = 200
-	return nil
-}
-
-func (t *SensorRPC) RequestVote(args *Node, reply *int) {
-	isLeader = false
-	leaderID = *args.id
-	for _, server := range members {
-		if args == server {
-			server.leader = true
-		} else {
-			server.leader = false
-		}
-	}
-	resetCountdownTimer()
-	*reply = 200
-	return nil
-}
-
-func (t *SensorRPC) ClientRequest(args *Message, reply *int) {
-	if isLeader {
-		logs = append(logs, *args)
-		for _, server := range member {
-			if server != self {
-				client, err := rpc.DialHTTP("tcp", server.address)
-				handleError(err)
-				var result int
-				err = client.Call("ServerRPC.AppendEntries", args, &result)
-				handleError(err)
-			}
-		}
-	} else {
-		for _, server := range members {
-			if server.id == leaderID {
-				client, err := rpc.DialHTTP("tcp", server.address)
-				handleError(err)
-				var result int
-				err = client.Call("ServerRPC.ClientRequest", args, &result)
-				handleError(err)
-				break
-			}
-		}
-	}
-}
-
-func heartbeatCountdown() {
-	for heartbeat_counter > 0 {
-		heartbeat_counter = heartbeat_counter - 1
-		time.Sleep(1 * time.Millisecond)
-	}
-
-	if heartbeat_counter == 0 {
-		var result int
-		err = client.Call("SensorRPC.RequestVote", &self, &result)
-		handleError(err)
-		isLeader = true
-		for _, server := range members {
-			if self == server {
-				server.leader = true
-			} else {
-				server.leader = false
-			}
-		}
-		self.leader = true
-	}
-}
-
-func sendHeartbeatToFollowers(args *Message) {
-	logs = append(logs, *args)
+func sendHeartBeat() {
 	for isLeader {
-		for _, server := range members {
-			var result int
-			fmt.Println("Mengirim AppendEntries RPC ke follower ", server.id)
-			err = rpc.Call("SensorRPC.AppendEntries", args, &result)
-			handleError(err)
-		}
-		time.Sleep(10 * time.Millisecond)
+		go func() {
+			for _, server := range members {
+				if server.id != self.id {
+					fmt.Println("Mengirim heartbeat ke", server.port)
+					client, err := rpc.DialHTTP("tcp", server.address)
+					handleErr(err)
+					var result int
+					err = client.Call("Raft.AppendEntries", term, &result)
+					handleErr(err)
+				}
+			}
+		}()
+		printTime()
+		time.Sleep(time.Second * 10)
 	}
 }
 
-func main() {
-	// Inisasi RPC server
-	serverID := os.Args[1]
-	// Inisasi RPC server
-	portNumber := os.Args[2]
+func main () {
+	rand.Seed(time.Now().UnixNano())
 
-	// Inisiasi struct
-	service := &SensorRPC{}
-	// Registrasikan struct dan method ke RPC
-	rpc.Register(service)
-	// Deklarasikan bahwa kita menggunakan protokol HTTP sebagai mekanisme pengiriman pesan
-	rpc.HandleHTTP()
-	fmt.Println("Run server ", serverID, " on port : ", portNumber)
+	portNumber := os.Args[1]
+
 	for _, server := range members {
-		if server.port == port {
+		if server.port == portNumber {
 			self = server
 		}
 	}
 
-	srv := &Raft{}
-	rpc.Register(srv)
+	raft_ := &Raft{}
+	rpc.Register(raft_)
 	rpc.HandleHTTP()
+	fmt.Println("Run server di port", portNumber)
 
-	// Deklarasikan listerner HTTP dengan layer transport TCP dan Port 1234
-	listener, err := net.Listen("tcp", ":"+string(self.port))
-	handleError(err)
+	listener, err := net.Listen("tcp", ":"+string(portNumber))
+	handleErr(err)
 
-	// Start timer
-	resetCountdownTimer()
+	resetTimer()
 	go restartCountdownTimer()
 
-	// Jalankan server HTTP
-	go http.Serve(listener, nil)
-
+	http.Serve(listener, nil)
 }
 
-func handleError(err error) {
+func handleErr(err error) {
 	if err != nil {
-		fmt.Println("Terdapat error : ", err.Error())
+		fmt.Println("E:", err.Error())
 	}
 }
